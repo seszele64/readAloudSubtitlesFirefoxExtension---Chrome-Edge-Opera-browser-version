@@ -21,8 +21,8 @@
   ],
   "web_accessible_resources": [
     {
-      "resources": ["settings.html", "content.js", "injected.js"],
-      "matches": ["*://*/*"]
+      "resources": ["injected.js"],
+      "matches": ["*://*.youtube.com/*"]
     }
   ],
   "options_ui": {
