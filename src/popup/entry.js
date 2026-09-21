@@ -1,3 +1,13 @@
+// Popup entry (settings.html). The phase-1 build bundles this file to
+// dist/settings.js and copies labels.js to dist/localization.js (settings.html
+// keeps the legacy script names until S10 renames the tags). Settings state is
+// owned by the shared store module and the voice list by the shared voices
+// module, so the popup no longer executes content-script code (the old
+// settings.html content.js tag) and has no bare speechSettings writes.
+
+import { loadSpeechSettings, saveSpeechSettings } from '../shared/store.js';
+import { whenVoicesReady } from '../shared/voices.js';
+
 document.addEventListener('DOMContentLoaded', () => {
     let speedSlider = document.getElementById('speedSlider');
     let volumeSlider = document.getElementById('volumeSlider');
@@ -10,45 +20,29 @@ document.addEventListener('DOMContentLoaded', () => {
     // Add event listener to the TTS engine change
     selectTTS.addEventListener('change', handleTTSvoiceChange);
 
-    // Retrieve the stored speechSettings from extension storage
-    chrome.storage.local
-        .get('speechSettings', result => {
-            if (result.speechSettings) {
-                speechSettings = result.speechSettings;
-                // Set the slider values based on the stored speechSettings
-                speedSlider.value = result.speechSettings.speechSpeed;
-                volumeSlider.value = result.speechSettings.speechVolume;
+    // Retrieve the stored speechSettings through the shared store module
+    // (memoized load, merged with the store defaults, which include
+    // rememberUserLastSelectedAutoTranslateToLanguageCode).
+    // chrome.runtime.lastError is checked inside the store's storage
+    // callback, never outside it.
+    loadSpeechSettings().then(speechSettings => {
+        // Set the slider values based on the stored speechSettings
+        speedSlider.value = speechSettings.speechSpeed;
+        volumeSlider.value = speechSettings.speechVolume;
 
-                selectTTS.value = result.speechSettings.speechVoice;
-            } else {
-                // Initialize speechSettings if it doesn't exist in storage
-                speechSettings = {
-                    speechSpeed: 2.3,
-                    speechVolume: 1.0,
-                    speechVoice: null
-                };
-                speedSlider.value = speechSettings.speechSpeed;
-                volumeSlider.value = speechSettings.speechVolume;
-
-                selectTTS.value = speechSettings.speechVoice;
-            }
-        });
-
-    chrome.runtime.lastError ? console.error('Error retrieving speech settings:', chrome.runtime.lastError) : null;
-
+        selectTTS.value = speechSettings.speechVoice;
+    });
 
     // Function to handle speed slider change
     function handleSpeedChange(event) {
-        // Perform actions with the speed value
-        speechSettings.speechSpeed = parseFloat(event.target.value);
-        saveSpeechSettings();
+        // Persist through the shared store (read-merge-write)
+        saveSpeechSettings({ speechSpeed: parseFloat(event.target.value) });
     }
 
     // Function to handle volume slider change
     function handleVolumeChange(event) {
-        // Perform actions with the volume value
-        speechSettings.speechVolume = parseFloat(event.target.value);
-        saveSpeechSettings();
+        // Persist through the shared store (read-merge-write)
+        saveSpeechSettings({ speechVolume: parseFloat(event.target.value) });
     }
 
     // Function to handle TTS voice change
@@ -59,34 +53,16 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // Function to save the speech settings in extension storage
-    function saveSpeechSettings() {
-        chrome.storage.local.set({ speechSettings: speechSettings });
-    }
-
-    function fetchVoices() {
-        return new Promise((resolve, reject) => {
-            const speechSynthesis = window.speechSynthesis;
-
-            // Check if voices are already available
-            if (speechSynthesis.getVoices().length > 0) {
-                resolve(speechSynthesis.getVoices());
-            } else {
-                // Wait for voices to be loaded
-                speechSynthesis.onvoiceschanged = () => {
-                    resolve(speechSynthesis.getVoices());
-                };
-            }
-        });
-    }
-
     // Function to populate the TTS engines dropdown
     function populateTTSEngines() {
         const select = document.getElementById('engineSelect');
         select.innerHTML = '';
 
         if ('speechSynthesis' in window) {
-            fetchVoices()
+            // Voice list comes from the shared voices module: one
+            // onvoiceschanged registration per context, bounded by a timeout
+            // so a stalled voice list still yields a (possibly empty) list.
+            whenVoicesReady()
                 .then(voices => {
                     // Clear the existing options
                     select.innerHTML = '';
@@ -98,10 +74,12 @@ document.addEventListener('DOMContentLoaded', () => {
                         select.add(option);
                     });
 
-                    // Retrieve the stored speechSettings from extension storage
-                    chrome.storage.local.get('speechSettings', result => {
-                        if (result.speechSettings && result.speechSettings.speechVoice) {
-                            select.value = result.speechSettings.speechVoice;
+                    // Re-apply the stored voice selection once the option list
+                    // exists (the memoized load resolves from the store cache;
+                    // lastError is checked in its storage callback).
+                    loadSpeechSettings().then(speechSettings => {
+                        if (speechSettings.speechVoice) {
+                            select.value = speechSettings.speechVoice;
                         }
                     });
                 })
