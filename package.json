@@ -12,7 +12,7 @@
     "build:watch": "node scripts/build.mjs --watch",
     "lint": "eslint src scripts tests",
     "test": "vitest run",
-    "zip": "echo \"TODO(S29): implement zip packaging of the built extension\""
+    "zip": "node scripts/zip.mjs"
   },
   "devDependencies": {
     "esbuild": "^0.28.2",
