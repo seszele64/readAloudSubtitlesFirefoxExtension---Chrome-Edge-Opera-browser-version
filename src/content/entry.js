@@ -1,13 +1,13 @@
-import { loadSpeechSettings, onSettingsChanged, saveSpeechSettings } from '../shared/store.js';
+import { getSpeechSettings, loadSpeechSettings, onSettingsChanged, saveSpeechSettings } from '../shared/store.js';
 import { extractLanguageCode } from '../shared/lang.js';
 // unescapeHTML (wire text cleanup) moved with the speech chain to ./tts.js (S15);
 // srt.js is still reachable from here through ./gui.js's download path.
 import { findVoiceByVoiceURI } from '../shared/voices.js';
 // Ad-skip watchdog lives in ./adskip.js (S11); single registration below.
 import { startAdSkip } from './adskip.js';
-// URL-poll loop lives in ./navigation.js (S12); started once below at the
-// same top-level lifecycle point where the bare checkSubtitle() call used
-// to run (this call is the seam S23 will gate behind store-ready).
+// URL-poll loop lives in ./navigation.js (S12); started once below, now
+// behind the S23 store-ready gate (the poll no longer runs before the
+// shared settings store has filled its bindings).
 import { startNavigationPolling, intervalId } from './navigation.js';
 // POT capture (injected-probe injection, FoundPOT listener, bounded token
 // wait) + caption-URL '&pot=' emission live in ./pot.js (S13).
@@ -47,12 +47,26 @@ let speechSettings;
 // setTtsIntervalId() and reads the live imported binding.
 
 // Speech settings come from the shared store module (single storage owner).
-// Async fill-in timing is preserved: the local binding is populated when the
-// store's memoized load resolves, then kept in sync with storage changes.
-loadSpeechSettings().then(settings => {
-  speechSettings = settings;
-});
+// S23: there is no fire-and-forget fill-in any more. Both the bootstrap
+// (below) and the settings-message handler await this gate before any
+// read/write, so the first caption/TTS action never observes the
+// half-initialized (undefined) binding the old fill-in left open.
+// getSpeechSettings() returns the store's CURRENT live object (onChanged
+// re-points the cache as writers land), so the binding is only filled from
+// the memoized load promise before it has resolved the first time —
+// re-assigning from that promise later would restore a stale pre-onChanged
+// object while the other modules hold the live one.
+const syncSpeechSettingsFromStore = async () => {
+  if (getSpeechSettings() === null) {
+    await loadSpeechSettings();
+  }
+  speechSettings = getSpeechSettings();
+};
 
+// Kept in sync with storage changes through onSettingsChanged — the store's
+// single-listener multiplexer (the only underlying storage-change listener
+// registration in this content context; no module here ever registers its
+// own).
 onSettingsChanged(settings => {
   speechSettings = settings;
 });
@@ -93,55 +107,79 @@ startAdSkip()
 initCaptions({ createSpeechUtterance })
 
 // The URL-poll loop lives in ./navigation.js (S12); it is started exactly
-// once here, at the same top-level lifecycle point where the bare
-// checkSubtitle() call used to run (S23 will gate this seam behind
-// store-ready).
-startNavigationPolling({ canInsert, getSubtitleList })
+// once, behind the S23 store-ready gate: the poll — and every caption/TTS
+// action its first 500 ms tick can trigger (buildGui()'s remember-key read
+// in ./gui.js, selectCaptionFileForTTS()'s remember-key write in
+// ./captions.js, createSpeechUtterance()'s voice lookups in ./tts.js) —
+// starts only after the store's memoized load has resolved, so no first
+// action ever sees the pre-load speechSettings binding that used to throw.
+;(async () => {
+  await syncSpeechSettingsFromStore();
+  startNavigationPolling({ canInsert, getSubtitleList });
+})()
 
 // Listen for messages from the settings.js file
 chrome.runtime.onMessage.addListener(function (message) {
   if (message.sender === 'settings') {
     clearInterval(intervalId);
 
-    const speechVoice = message.voice;
+    // S23: the handler runs behind the same store-ready gate as the
+    // navigation poll — a settings ping arriving before the memoized load
+    // has resolved waits for it here instead of touching the
+    // half-initialized binding.
+    (async () => {
+      await syncSpeechSettingsFromStore();
 
-    speechSettings.speechVoice = speechVoice;
-    saveSpeechSettings(speechSettings);
+      const speechVoice = message.voice;
 
-    const dropdowns = document.querySelectorAll('[id^="dropdown_"]');
+      speechSettings.speechVoice = speechVoice;
 
-    // Null-guarded lookup (shared/voices.js): with an empty voice list
-    // (voices not loaded yet) or an unknown voiceURI it returns null —
-    // never throws. languageCode then stays null and the dropdown
-    // selection below is left untouched.
-    const foundVoice = findVoiceByVoiceURI(speechVoice);
-    const languageCode = foundVoice ? extractLanguageCode(foundVoice.lang) : null;
-    if (languageCode !== null) {
-      speechSettings.rememberUserLastSelectedAutoTranslateToLanguageCode = languageCode;
-    }
+      const dropdowns = document.querySelectorAll('[id^="dropdown_"]');
 
-    dropdowns.forEach(function (dropdown) {
-      // Find the option with the matching languageCode; languageCode holds
-      // the already-extracted code, or null when the voice was not found
-      // (in which case the dropdown selection is left untouched)
-      const selectedOption = languageCode === null
-        ? undefined
-        : Array.from(dropdown.options).find(option => option.value === languageCode);
+      // Null-guarded lookup (shared/voices.js): with an empty voice list
+      // (voices not loaded yet) or an unknown voiceURI it returns null —
+      // never throws. languageCode then stays null and the dropdown
+      // selection below is left untouched.
+      const foundVoice = findVoiceByVoiceURI(speechVoice);
+      const languageCode = foundVoice ? extractLanguageCode(foundVoice.lang) : null;
 
-      // Set the selectedIndex of the dropdown to the index of the selected option
-      if (selectedOption) {
-        dropdown.selectedIndex = selectedOption.index;
+      // S23: one read-merge-write through the store persists exactly the
+      // fields this message changed (the remember-key update used to rely
+      // on a later full-object save; it now rides along in the same patch,
+      // which cannot clobber sibling keys another context changed in
+      // storage since our last onChanged sync). The in-place writes keep
+      // every module's shared live-settings object coherent until the
+      // onChanged round-trip re-points the bindings.
+      const patch = { speechVoice };
+      if (languageCode !== null) {
+        speechSettings.rememberUserLastSelectedAutoTranslateToLanguageCode = languageCode;
+        patch.rememberUserLastSelectedAutoTranslateToLanguageCode = languageCode;
       }
+      saveSpeechSettings(patch);
 
-      // Assuming the checkbox was created as a sibling of the dropdown within the same container
-      const container = dropdown.parentNode;
-      const checkbox = container.querySelector('input[type="checkbox"]');
-      if (checkbox?.checked) {
-        //checks if it was checked
-        // Trigger the 'change' event on the checkbox. I had to do it that way, as checkbox.checked = isChecked wasn't triggering an event - checked with the debugger!
-        checkbox.dispatchEvent(new Event('change'));
-      }
-    });
+      dropdowns.forEach(function (dropdown) {
+        // Find the option with the matching languageCode; languageCode holds
+        // the already-extracted code, or null when the voice was not found
+        // (in which case the dropdown selection is left untouched)
+        const selectedOption = languageCode === null
+          ? undefined
+          : Array.from(dropdown.options).find(option => option.value === languageCode);
+
+        // Set the selectedIndex of the dropdown to the index of the selected option
+        if (selectedOption) {
+          dropdown.selectedIndex = selectedOption.index;
+        }
+
+        // Assuming the checkbox was created as a sibling of the dropdown within the same container
+        const container = dropdown.parentNode;
+        const checkbox = container.querySelector('input[type="checkbox"]');
+        if (checkbox?.checked) {
+          //checks if it was checked
+          // Trigger the 'change' event on the checkbox. I had to do it that way, as checkbox.checked = isChecked wasn't triggering an event - checked with the debugger!
+          checkbox.dispatchEvent(new Event('change'));
+        }
+      });
+    })();
   }
   if (message.sender === 'speech') {
     // The speech-in-progress flag is owned by ./captions.js (S14); the
