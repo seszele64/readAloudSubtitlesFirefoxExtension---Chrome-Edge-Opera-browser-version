@@ -102,7 +102,7 @@ The extension sources live in `src/` and are built into `dist/` with [esbuild](h
 | `npm run build:watch` | Builds once, then keeps rebuilding automatically on every file change |
 | `npm run lint` | Runs ESLint over `src/`, `scripts/` and `tests/` |
 | `npm test` | Runs the test suite (Vitest) |
-| `npm run zip` | Packages `dist/` for store upload — **upcoming, not yet implemented** (currently a placeholder) |
+| `npm run zip` | Packages `dist/` into `youtube-subtitle-reader-<version>.zip` for store upload — deterministic (sorted entries, fixed timestamps) and dependency-free |
 
 ### What the build produces (see `scripts/build.mjs`)
 
@@ -121,7 +121,7 @@ To try the built extension: open `chrome://extensions`, enable **Developer mode*
 
 ### Versioning convention
 
-The extension version is maintained in **`manifest.json`** (currently `0.1.7.16`) and is the single source of truth. The `version` field in `package.json` (`0.1.0`) is only an npm placeholder and is **not** kept in sync — do not bump it or rely on it for release purposes.
+The extension version is maintained in **`manifest.json`** (currently `0.1.8.0`) and is the single source of truth. The `version` field in `package.json` (`0.1.0`) is only an npm placeholder and is **not** kept in sync — do not bump it or rely on it for release purposes.
 
 ## License
 
