@@ -173,7 +173,11 @@ chrome.runtime.onMessage.addListener(function (message) {
         // Assuming the checkbox was created as a sibling of the dropdown within the same container
         const container = dropdown.parentNode;
         const checkbox = container.querySelector('input[type="checkbox"]');
-        if (checkbox?.checked) {
+        // F3: dispatch only when the dropdown above was actually updated
+        // (selectedOption is undefined when languageCode is null or no
+        // option matched). Re-dispatching on a stale selectedIndex would
+        // re-speak with the previous language.
+        if (selectedOption && checkbox?.checked) {
           //checks if it was checked
           // Trigger the 'change' event on the checkbox. I had to do it that way, as checkbox.checked = isChecked wasn't triggering an event - checked with the debugger!
           checkbox.dispatchEvent(new Event('change'));
