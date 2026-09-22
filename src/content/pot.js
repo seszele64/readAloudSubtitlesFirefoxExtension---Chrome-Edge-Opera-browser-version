@@ -6,8 +6,11 @@
 // FOREVER (`while (poToken === null)`); it is replaced here by waitForPot(),
 // a bounded + memoized wait: at most maxClickCycles click cycles (double
 // CC-button toggle each, as before), each with the original 2 s poll window,
-// all under a hard deadlineMs cap, and the whole attempt memoized so
-// concurrent and repeat callers never restart the clicking.
+// all under a hard deadlineMs cap, and the whole attempt shared while
+// pending so concurrent callers never restart the clicking. Settled
+// success stays memoized; a settled-null outcome clears the memo so a
+// later caller (e.g. a CC button that hydrated after document_end) can
+// start a fresh bounded attempt.
 //
 // When the token is still missing after the bounded wait, buildCaptionUrl()
 // omits the '&pot=' parameter entirely (the old code string-concatenated the
@@ -55,8 +58,10 @@ export function startPotCapture () {
   });
 }
 
-// Memoized bounded attempt: shared by concurrent callers, and repeat calls
-// after it has settled return it immediately (the CC toggling never restarts).
+// Memoized bounded attempt: shared by concurrent callers while it is
+// pending (the CC toggling never restarts concurrently). Settled success
+// remains memoized; a settled-null outcome resets it post-settle (see the
+// continuation below) so late-hydrated CC buttons are retried.
 let potWaitPromise = null
 
 /**
@@ -96,6 +101,20 @@ export function waitForPot ({ deadlineMs = POT_WAIT_DEFAULTS.deadlineMs, pollMs 
     }
     return poToken;
   })();
+
+  // Post-settle continuation: memoize only while pending and across a
+  // settled success. When the attempt settled with no token (CC button
+  // missing or bounds exhausted) and poToken is still null, clear the memo
+  // so the next caller starts a fresh bounded attempt. Runs strictly after
+  // settle, so concurrent callers during the attempt still share it.
+  potWaitPromise.then(
+    (token) => {
+      if (token === null && poToken === null) potWaitPromise = null;
+    },
+    () => {
+      if (poToken === null) potWaitPromise = null;
+    }
+  );
 
   return potWaitPromise;
 }
