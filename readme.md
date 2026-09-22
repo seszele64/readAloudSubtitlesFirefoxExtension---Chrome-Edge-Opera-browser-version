@@ -85,9 +85,47 @@ This extension is localized to most major languages. The language of extensions 
 
 ![](readmePics/ruOptions.png)
 
+## Development
+
+The extension sources live in `src/` and are built into `dist/` with [esbuild](https://esbuild.github.io/); the test suite uses [Vitest](https://vitest.dev/).
+
+### Prerequisites
+
+- Node.js >= 22.12 (enforced by the `engines` field in `package.json`)
+- Run `npm install` once to install the dev dependencies
+
+### Build and development commands
+
+| Command | What it does |
+| --- | --- |
+| `npm run build` | One-shot build: bundles the JS entry points with esbuild and copies static assets into `dist/` |
+| `npm run build:watch` | Builds once, then keeps rebuilding automatically on every file change |
+| `npm run lint` | Runs ESLint over `src/`, `scripts/` and `tests/` |
+| `npm test` | Runs the test suite (Vitest) |
+| `npm run zip` | Packages `dist/` into `youtube-subtitle-reader-<version>.zip` for store upload — deterministic (sorted entries, fixed timestamps) and dependency-free |
+
+### What the build produces (see `scripts/build.mjs`)
+
+| Source | Output |
+| --- | --- |
+| `src/content/entry.js` | `dist/content.js` |
+| `src/popup/entry.js` | `dist/settings.js` (legacy name; `settings.html` still loads `settings.js`) |
+| `src/popup/settings.html` | `dist/settings.html` |
+| `src/popup/labels.js` | `dist/localization.js` (legacy name; `settings.html` still loads `localization.js`) |
+| `src/injected/injected.js` | `dist/injected.js` |
+| `manifest.json`, `icon128.png`, `_locales/` (52 locales) | copied verbatim into `dist/` |
+
+Shared modules used by several entry points live in `src/shared/` (for example `store.js`) and are inlined into the bundles by esbuild.
+
+To try the built extension: open `chrome://extensions`, enable **Developer mode**, click **Load unpacked** and select the `dist/` directory.
+
+### Versioning convention
+
+The extension version is maintained in **`manifest.json`** (currently `0.1.8.0`) and is the single source of truth. The `version` field in `package.json` (`0.1.0`) is only an npm placeholder and is **not** kept in sync — do not bump it or rely on it for release purposes.
+
 ## License
 
-This project is licensed under the [GPLv3 License](https://www.gnu.org/licenses/gpl-3.0.en.html). Feel free to modify and distribute the code according to the terms of the license.
+This project is licensed under the [GPLv3 License](https://www.gnu.org/licenses/gpl-3.0.en.html). Feel free to modify and distribute the code according to the terms of the license. A full copy of the license is available in the [LICENSE](LICENSE) file.
 
 ---
 

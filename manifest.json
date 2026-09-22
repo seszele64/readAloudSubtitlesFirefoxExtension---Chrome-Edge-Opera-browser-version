@@ -3,7 +3,7 @@
   "name": "__MSG_appName__",
   "description": "__MSG_appDesc__",
   "default_locale": "en",
-  "version": "0.1.7.16",
+  "version": "0.1.8.0",
   "icons": {
     "128": "icon128.png"
   },
@@ -21,8 +21,8 @@
   ],
   "web_accessible_resources": [
     {
-      "resources": ["settings.html", "content.js", "injected.js"],
-      "matches": ["*://*/*"]
+      "resources": ["injected.js"],
+      "matches": ["*://*.youtube.com/*"]
     }
   ],
   "options_ui": {
