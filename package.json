@@ -15,6 +15,7 @@
     "zip": "node scripts/zip.mjs"
   },
   "devDependencies": {
+    "@eslint/js": "^9.39.5",
     "esbuild": "^0.28.2",
     "eslint": "^9.39.5",
     "globals": "^17.12.0",
