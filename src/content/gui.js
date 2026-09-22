@@ -404,7 +404,11 @@ const createSelectionLink = (track, languageTexts) => {
     // S17 born-in: persist the remember-key immediately through the store.
     // (Pre-extraction, this write only mutated the shared in-memory object;
     // it reached storage whenever a later settings-message save happened.)
-    saveSpeechSettings(speechSettings);
+    // One-field patch (not the full object) so a stale binding cannot clobber
+    // popup-written keys — mirrors the tts.js:115 patch pattern.
+    saveSpeechSettings({
+      rememberUserLastSelectedAutoTranslateToLanguageCode: selectedLanguageCode,
+    });
 
     checkbox.checked = true;
 
